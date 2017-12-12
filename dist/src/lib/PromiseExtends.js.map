@@ -1,0 +1,1 @@
+{"version":3,"file":"PromiseExtends.js","sourceRoot":"","sources":["../../../src/lib/PromiseExtends.ts"],"names":[],"mappings":";;AAAA;IAIE,YAAY,aAAiC,OAAO;QAClD,IAAI,CAAC,OAAO,GAAG,IAAI,UAAU,CAAI,CAAC,QAAQ,EAAE,OAAO,EAAE,EAAE;YACrD,IAAI,CAAC,OAAO,GAAG,QAAQ,CAAC;YACxB,IAAI,CAAC,MAAM,GAAG,OAAO,CAAC;QACxB,CAAC,CAAC,CAAC;IACL,CAAC;CACF;AAVD,gCAUC"}

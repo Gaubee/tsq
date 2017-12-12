@@ -1,0 +1,22 @@
+{
+  "name": "gqs",
+  "version": "0.0.1",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "console-pro": "^1.2.2",
+    "filedase": "^1.0.8",
+    "path-to-regexp": "^2.1.0",
+    "typescript": "^2.6.2"
+  },
+  "devDependencies": {
+    "@types/node": "^8.0.54",
+    "@types/path-to-regexp": "^1.7.0"
+  }
+}
