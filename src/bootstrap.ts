@@ -11,6 +11,9 @@ import * as os from 'os';
 // 	}
 // }
 
+import { MicroServiceProxy } from './MicroServiceProxy';
+import { ResponseContent } from './ResponseContent';
+
 import {
 	console,
 	API_MAP,
@@ -21,17 +24,35 @@ import {
 	REQ_URL_CACHE_SYMBOL,
 	ApiUrlMatcher,
 	CENTER_PORT,
+	CONSTRUCTOR_PARAMS,
 	SERVICE_TOKEN
 } from './const';
-const { HTTP2_HEADER_PATH, HTTP2_HEADER_STATUS } = http2.constants;
+const {
+	HTTP2_HEADER_PATH,
+	HTTP2_HEADER_STATUS,
+	HTTP2_HEADER_CONTENT_TYPE
+} = http2.constants;
 
 export function bootstrap(ServiceConstructor: new (...args) => any) {
-	const service = new ServiceConstructor();
+	const constructor_params: MicroServiceProxy<any>[] =
+		ServiceConstructor[CONSTRUCTOR_PARAMS];
 	const module_name: string = ServiceConstructor[MODULE_NAME_SYMBOL];
 	const server_port: number = ServiceConstructor[SERVER_PORT_SYMBOL];
 	const service_version: string = ServiceConstructor[SERVICE_VERSION_SYMBOL];
-	const api_map: API_MAP = new Map();
 
+	// 建立自己的服务节点，用于为其它中心节点提供直连服务
+	const server = http2.createServer();
+
+	// 将数据服务注入到constructor_params中，初始化远程依赖代理服务
+	const params = constructor_params.map(constructor_param => {
+		constructor_param.link(server);
+		return constructor_param.proxy_obj;
+	});
+
+	// 初始化项目
+	const service = new ServiceConstructor(...params);
+
+	const api_map: API_MAP = new Map();
 	{
 		// 从原型链上一层层剥下API_MAP
 		let cur_service_proto = service;
@@ -45,52 +66,8 @@ export function bootstrap(ServiceConstructor: new (...args) => any) {
 			cur_service_proto = Object.getPrototypeOf(cur_service_proto);
 		}
 	}
-	// 建立自己的服务节点，用于为其它中心节点提供直连服务
-	const server = http2.createServer();
 
-	const onServerRequest = async (req, res) => {
-		console.log('request', req.headers);
-		const url_info = (req[REQ_URL_CACHE_SYMBOL] = url.parse(req.headers[
-			HTTP2_HEADER_PATH
-		] as string));
-		const req_path = url_info.pathname;
-
-		const t = console.time(req.method, req_path);
-		try {
-			for (let [fun_name, api_info_list] of api_map.entries()) {
-				for (let { matcher, arg_hander_list } of api_info_list) {
-					let match_res;
-					try {
-						match_res = await matcher(req_path, req);
-					} catch (err) {
-						console.warn(fun_name, '的匹配器异常', err);
-					}
-
-					if (match_res) {
-						let res_body;
-						console.flag('call', fun_name);
-						try {
-							const args = await Promise.all(
-								arg_hander_list.map(arg_hander =>
-									arg_hander(req)
-								)
-							);
-							res_body = await service[fun_name](...args);
-						} catch (err) {
-							res.statusCode = err.code || 500;
-						}
-						res.end(res_body);
-						return;
-					}
-				}
-			}
-			res.statusCode = 502;
-			res.end('zzZZZ!no found');
-		} finally {
-			console.timeEnd(t);
-		}
-	};
-	server.on('request', onServerRequest);
+	server.on('request', generateRequestHandle(service, api_map));
 	server.listen(
 		{
 			port: server_port,
@@ -139,23 +116,23 @@ export function bootstrap(ServiceConstructor: new (...args) => any) {
 					req.end();
 				});
 
-				clientSession.on(
-					'stream',
-					async (stream, headers, flags, rawHeaders) => {
-						try {
-							console.log('stream', headers, rawHeaders);
-							const req: http2.Http2ServerRequest = new http2[
-								'Http2ServerRequest'
-							](stream, headers, undefined, rawHeaders);
-							const res: http2.Http2ServerResponse = new http2[
-								'Http2ServerResponse'
-							](stream);
-							return await onServerRequest(req, res);
-						} catch (err) {
-							console.error(err);
-						}
-					}
-				);
+				// clientSession.on(
+				// 	'stream',
+				// 	async (stream, headers, flags, rawHeaders) => {
+				// 		try {
+				// 			console.log('stream', headers, rawHeaders);
+				// 			const req: http2.Http2ServerRequest = new http2[
+				// 				'Http2ServerRequest'
+				// 			](stream, headers, undefined, rawHeaders);
+				// 			const res: http2.Http2ServerResponse = new http2[
+				// 				'Http2ServerResponse'
+				// 			](stream);
+				// 			return await onServerRequest(req, res);
+				// 		} catch (err) {
+				// 			console.error(err);
+				// 		}
+				// 	}
+				// );
 				clientSession.on('close', () => {
 					var second = 1;
 					const log_line = () => {
@@ -179,4 +156,66 @@ export function bootstrap(ServiceConstructor: new (...args) => any) {
 			connectToCenterServer();
 		}
 	);
+}
+function generateRequestHandle(service, api_map: Map<string, any>) {
+	const onServerRequest = async (
+		req: http2.Http2ServerRequest,
+		res: http2.Http2ServerResponse
+	) => {
+		console.log('request', req.headers);
+		const url_info = (req[REQ_URL_CACHE_SYMBOL] = url.parse(req.headers[
+			HTTP2_HEADER_PATH
+		] as string));
+		const req_path = url_info.pathname;
+
+		const t = console.time(req.method, req_path);
+		try {
+			for (let [fun_name, api_info_list] of api_map.entries()) {
+				for (let { matcher, arg_hander_list } of api_info_list) {
+					let match_res;
+					try {
+						match_res = await matcher(req_path, req);
+					} catch (err) {
+						console.warn(fun_name, '的匹配器异常', err);
+					}
+
+					if (match_res) {
+						let res_body;
+						console.flag('call', fun_name);
+						try {
+							const args = await Promise.all(
+								arg_hander_list.map(arg_hander =>
+									arg_hander(req)
+								)
+							);
+							res_body = await service[fun_name](...args);
+						} catch (err) {
+							res.statusCode = err.code || 500;
+						}
+						if (res_body instanceof ResponseContent) {
+							res.setHeader('Content-Type', res_body.type);
+							res.setHeader('charset', res_body.charset);
+							res.statusCode = res_body.statusCode;
+							// res.stream.respond({
+							// 	[HTTP2_HEADER_CONTENT_TYPE]: res_body.type,
+							// 	[HTTP2_HEADER_STATUS]: res_body.statusCode
+							// });
+							console.log(res.getHeaders());
+							res.end(res_body.body);
+						} else {
+							res.end(res_body);
+						}
+						return;
+					}
+				}
+			}
+			res.statusCode = 502;
+			res.end('zzZZZ!no found');
+		} catch (err) {
+			console.error(err);
+		} finally {
+			console.timeEnd(t);
+		}
+	};
+	return onServerRequest;
 }

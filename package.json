@@ -1,8 +1,8 @@
 {
   "name": "tsq",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "",
-  "main": "index.js",
+  "main": "dist/index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -10,9 +10,12 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@types/mime-types": "^2.1.0",
     "console-pro": "^1.2.2",
     "filedase": "^1.0.8",
+    "mime-types": "^2.1.17",
     "path-to-regexp": "^2.1.0",
+    "reflect-metadata": "^0.1.10",
     "typescript": "^2.6.2"
   },
   "devDependencies": {

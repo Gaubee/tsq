@@ -1,6 +1,4 @@
-import { MicroService, App } from './MicroService';
-import { console } from './const';
-import { exportAPI } from './exportAPI';
+import { MicroService, App, console, exportAPI } from '../src';
 
 @MicroService('1.0.0')
 export class A {
@@ -11,5 +9,10 @@ export class A {
 		return '✨' + name + '✨';
 	}
 
+	add(a: number, b: number) {
+		return a + b;
+	}
 }
-App.bootstrap(A);
+if (require.main == module) {
+	App.bootstrap(A);
+}

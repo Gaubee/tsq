@@ -2,6 +2,7 @@ import * as http2 from 'http2';
 import * as url from 'url';
 import * as querystring from 'querystring';
 import * as pathToRegexp from 'path-to-regexp';
+import 'reflect-metadata';
 import {
 	console,
 	ApiUrlMatcher,
@@ -35,122 +36,146 @@ export function exportAPI(
 				"match_url's type must be [string | RegExp | Function]"
 			);
 		}
+		const typeList: Array<Function> = Reflect.getMetadata(
+			'design:paramtypes',
+			service,
+			fun_name
+		);
 
-		const arg_hander_list = args_handers.map(arg_hander_config => {
-			if (arg_hander_config instanceof Function) {
-				return arg_hander_config;
-			} else if (typeof arg_hander_config === 'string') {
-				arg_hander_config = arg_hander_config.split('.');
-				const arg_from = arg_hander_config.shift();
-				const try_get_prop = res => {
-					for (let i = 0; i < arg_hander_config.length; i += 1) {
-						res = res[arg_hander_config[i]];
-						if (!res) {
-							break;
-						}
-					}
-					return res;
-				};
-				const get_url_info = (req: http2.Http2ServerRequest) => {
-					if (!req[REQ_URL_CACHE_SYMBOL]) {
-						req[REQ_URL_CACHE_SYMBOL] = url.parse(req.headers[
-							HTTP2_HEADER_PATH
-						] as string);
-					}
-					return req[REQ_URL_CACHE_SYMBOL];
-				};
-				if (arg_from === 'query') {
-					return (req: http2.Http2ServerRequest) => {
-						if (!req[REQ_QUERY_CACHE_SYMBOL]) {
-							req[REQ_QUERY_CACHE_SYMBOL] = querystring.parse(
-								get_url_info(req).query
-							);
-						}
-						return try_get_prop(req[REQ_QUERY_CACHE_SYMBOL]);
-					};
-				} else if (arg_from === 'params') {
-					if (typeof match_url === 'string') {
-						const keys = [];
-						const re = pathToRegexp(match_url, keys);
-						return (req: http2.Http2ServerRequest) => {
-							if (!req[REQ_QUERY_CACHE_SYMBOL]) {
-								const params: any = (req[
-									REQ_QUERY_CACHE_SYMBOL
-								] = {});
-								const match_info = get_url_info(
-									req
-								).pathname.match(re);
-								if (match_info) {
-									const match_params: string[] = match_info.slice(
-										1
-									);
-									for (let kinfo of keys) {
-										params[
-											kinfo.name
-										] = match_params.shift();
-									}
-								}
-							}
-
-							return try_get_prop(req[REQ_QUERY_CACHE_SYMBOL]);
-						};
-					} else if (match_url instanceof RegExp) {
-						return (req: http2.Http2ServerRequest) => {
-							if (!req[REQ_QUERY_CACHE_SYMBOL]) {
-								const params: any = (req[
-									REQ_QUERY_CACHE_SYMBOL
-								] = {});
-								const match_info = get_url_info(
-									req
-								).pathname.match(match_url);
-								if (match_info) {
-									const match_params: string[] = match_info.slice(
-										1
-									);
-									for (
-										let i = 0;
-										i < match_params.length;
-										i += 1
-									) {
-										params[i] = match_params[i];
-									}
-								}
-							}
-
-							return try_get_prop(req[REQ_QUERY_CACHE_SYMBOL]);
-						};
-					}
-				} else if (arg_from === 'body') {
-					return async (req: http2.Http2ServerRequest) => {
-						if (!req[REQ_BODY_CACHE_SYMBOL]) {
-							req[
-								REQ_BODY_CACHE_SYMBOL
-							] = await new Promise((resolve, reject) => {
-								let rawBody = '';
-								req.stream.on(
-									'data',
-									chunk => (rawBody += chunk)
-								);
-								req.stream.on('end', () => {
-									try {
-										resolve(JSON.parse(rawBody));
-									} catch (err) {
-										console.error('Parse body Error');
-										console.error(err);
-										resolve({});
-									}
-								});
-								req.stream.on('error', () => {
-									resolve({});
-								});
-							});
-						}
-						return try_get_prop(req[REQ_BODY_CACHE_SYMBOL]);
-					};
+		const arg_hander_list = args_handers
+			.map(arg_hander_config => {
+				if (arg_hander_config instanceof Function) {
+					return arg_hander_config;
 				}
-			}
-			return noop;
-		});
+				if (typeof arg_hander_config === 'string') {
+					arg_hander_config = arg_hander_config.split('.');
+					const arg_from = arg_hander_config.shift();
+					const try_get_prop = res => {
+						for (let i = 0; i < arg_hander_config.length; i += 1) {
+							res = res[arg_hander_config[i]];
+							if (!res) {
+								break;
+							}
+						}
+						return res;
+					};
+					const get_url_info = (req: http2.Http2ServerRequest) => {
+						if (!req[REQ_URL_CACHE_SYMBOL]) {
+							req[REQ_URL_CACHE_SYMBOL] = url.parse(req.headers[
+								HTTP2_HEADER_PATH
+							] as string);
+						}
+						return req[REQ_URL_CACHE_SYMBOL];
+					};
+					if (arg_from === 'query') {
+						return (req: http2.Http2ServerRequest) => {
+							if (!req[REQ_QUERY_CACHE_SYMBOL]) {
+								req[REQ_QUERY_CACHE_SYMBOL] = querystring.parse(
+									get_url_info(req).query
+								);
+							}
+							return try_get_prop(req[REQ_QUERY_CACHE_SYMBOL]);
+						};
+					} else if (arg_from === 'params') {
+						if (typeof match_url === 'string') {
+							const keys = [];
+							const re = pathToRegexp(match_url, keys);
+							return (req: http2.Http2ServerRequest) => {
+								if (!req[REQ_QUERY_CACHE_SYMBOL]) {
+									const params: any = (req[
+										REQ_QUERY_CACHE_SYMBOL
+									] = {});
+									const match_info = get_url_info(
+										req
+									).pathname.match(re);
+									if (match_info) {
+										const match_params: string[] = match_info.slice(
+											1
+										);
+										for (let kinfo of keys) {
+											params[
+												kinfo.name
+											] = match_params.shift();
+										}
+									}
+								}
+
+								return try_get_prop(
+									req[REQ_QUERY_CACHE_SYMBOL]
+								);
+							};
+						} else if (match_url instanceof RegExp) {
+							return (req: http2.Http2ServerRequest) => {
+								if (!req[REQ_QUERY_CACHE_SYMBOL]) {
+									const params: any = (req[
+										REQ_QUERY_CACHE_SYMBOL
+									] = {});
+									const match_info = get_url_info(
+										req
+									).pathname.match(match_url);
+									if (match_info) {
+										const match_params: string[] = match_info.slice(
+											1
+										);
+										for (
+											let i = 0;
+											i < match_params.length;
+											i += 1
+										) {
+											params[i] = match_params[i];
+										}
+									}
+								}
+
+								return try_get_prop(
+									req[REQ_QUERY_CACHE_SYMBOL]
+								);
+							};
+						}
+					} else if (arg_from === 'body') {
+						return async (req: http2.Http2ServerRequest) => {
+							if (!req[REQ_BODY_CACHE_SYMBOL]) {
+								req[
+									REQ_BODY_CACHE_SYMBOL
+								] = await new Promise((resolve, reject) => {
+									let rawBody = '';
+									req.stream.on(
+										'data',
+										chunk => (rawBody += chunk)
+									);
+									req.stream.on('end', () => {
+										try {
+											resolve(JSON.parse(rawBody));
+										} catch (err) {
+											console.error('Parse body Error');
+											console.error(err);
+											resolve({});
+										}
+									});
+									req.stream.on('error', () => {
+										resolve({});
+									});
+								});
+							}
+							return try_get_prop(req[REQ_BODY_CACHE_SYMBOL]);
+						};
+					} else if (arg_from === 'match') {
+						return (req, match_result: boolean | object) =>
+							try_get_prop(match_result);
+					} else if (arg_from === 'request') {
+						return req => try_get_prop(req);
+					}
+				}
+				return noop;
+			})
+			.map((fun, i) => {
+				const typeCon = typeList[i];
+				if (typeCon === Object) {
+					return fun;
+				}
+				return (...args) => typeCon(fun(...args));
+			});
+
 		const api_map: API_MAP =
 			service[API_MAP_SYMBOL] || (service[API_MAP_SYMBOL] = new Map());
 		const api_info = { matcher, arg_hander_list };
