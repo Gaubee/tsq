@@ -18,6 +18,11 @@ export type API_MAP = Map<
 >;
 export const CENTER_PORT = 8443;
 export const SERVICE_TOKEN = 'gaubee service net';
+export enum SERVICE_METHOD {
+	REIGSTER = '#REGISTER#',
+	QUERY_MODULE = '#QUERY_MODULE#',
+	RPC_SERVICE = '#RPC_SERVICE#'
+}
 export const noop = () => {};
 
 export const REQ_URL_CACHE_SYMBOL = Symbol('url');
@@ -26,3 +31,23 @@ export const REQ_PARAMS_CACHE_SYMBOL = Symbol('params');
 export const REQ_BODY_CACHE_SYMBOL = Symbol('body');
 
 export const IS_PROXY_OBJECT = '#@@PROXY_OBJECT@@#';
+
+export function errorWrapper(source_fun) {
+	return function(...args) {
+		try {
+			const res = source_fun.apply(this, args);
+			if (res instanceof Promise) {
+				return res.catch(err => {
+					console.error(err);
+				});
+			}
+			return res;
+		} catch (err) {
+			console.error(err);
+		}
+	};
+}
+export function errorWrapperDec(target, name, des: PropertyDescriptor) {
+	des.value = errorWrapper(des.value);
+	return des;
+}

@@ -12,12 +12,19 @@ import {
 	CONSTRUCTOR_PARAMS,
 	ApiUrlMatcher,
 	CENTER_PORT,
-	SERVICE_TOKEN
+	SERVICE_TOKEN,
+	SERVICE_METHOD,
+	errorWrapper,
+	errorWrapperDec
 } from './const';
 import { PromiseOut } from './lib/PromiseExtends';
 import { bootstrap } from './bootstrap';
 
-const { HTTP2_HEADER_PATH, HTTP2_HEADER_STATUS } = http2.constants;
+const {
+	HTTP2_HEADER_PATH,
+	HTTP2_HEADER_STATUS,
+	HTTP2_HEADER_METHOD
+} = http2.constants;
 
 export class MicroServiceNode {
 	constructor(
@@ -59,18 +66,25 @@ export class App {
 		server.on('socketError', err => console.error(err));
 		server.on('stream', (stream, headers) => {
 			if (headers.token === SERVICE_TOKEN) {
-				this.registerMicroServiceNode(stream, headers).catch(
-					console.error.bind(console, 'REGISTER ERROR')
-				);
+				console.log(headers);
+				if (headers.method === SERVICE_METHOD.REIGSTER) {
+					this.registerMicroServiceNode(stream, headers);
+					/*.catch(
+						console.error.bind(console, 'REGISTER ERROR')
+					);*/
+				} else if (headers.method === SERVICE_METHOD.QUERY_MODULE) {
+					this.queryModule(stream, headers);
+				}
 			}
 		});
 		server.on('request', (req, res) => {
 			if (req.headers.token) {
 				return;
 			}
-			this.handleRequest(req, res).catch(
+			this.handleRequest(req, res);
+			/*.catch(
 				console.error.bind(console, 'REQUEST ERROR')
-			);
+			);*/
 		});
 
 		server.listen(CENTER_PORT);
@@ -78,6 +92,7 @@ export class App {
 		// 控制台指令服务
 		this.cli();
 	}
+	@errorWrapperDec
 	async registerMicroServiceNode(
 		stream: http2.ServerHttp2Stream,
 		headers: http2.IncomingHttpHeaders
@@ -237,11 +252,15 @@ export class App {
 		}
 		connectMicroServiceNode().catch(log_register_error);
 	}
+	@errorWrapperDec
 	async handleRequest(
 		req: http2.Http2ServerRequest,
 		res: http2.Http2ServerResponse
 	) {
 		const url_path = req.headers[HTTP2_HEADER_PATH] as string;
+		if (!url_path) {
+			return;
+		}
 		const t = console.time(url_path);
 
 		const { MODULE_DB, MODULE_DB_TABLE_NAME, MODULE_KEY_SYMBOL } = this;
@@ -263,6 +282,7 @@ export class App {
 				await registed_module.connectingPromise;
 
 				const proxy_req = registed_module.moduleSession.request({
+					...req.headers,
 					[HTTP2_HEADER_PATH]: '/' + path_info.slice(1).join('/'),
 					token: SERVICE_TOKEN
 				});
@@ -290,6 +310,40 @@ export class App {
 		}
 		console.timeEnd(t);
 	}
+	@errorWrapperDec
+	async queryModule(
+		stream: http2.ServerHttp2Stream,
+		headers: http2.IncomingHttpHeaders
+	) {
+		const { MODULE_DB, MODULE_DB_TABLE_NAME, MODULE_KEY_SYMBOL } = this;
+
+		const { module_name, service_version } = headers as {
+			[k: string]: string;
+		};
+		const find_modules = MODULE_DB.find_list(MODULE_DB_TABLE_NAME, {
+			module_name
+		});
+		const version_info = service_version.split('.');
+		const match_version_startsWith =
+			version_info.slice(0, 2).join('.') + '.';
+		const matched_modules = find_modules.filter(m =>
+			m.service_version.startsWith(match_version_startsWith)
+		);
+		// 随机模式
+		const matched_module =
+			matched_modules[(matched_modules.length * Math.random()) | 0];
+		if (matched_module) {
+			stream.respond({
+				success: 'true',
+				module_name: matched_module.module_name,
+				server_host: matched_module.server_host,
+				server_port: matched_module.server_port,
+				service_version: matched_module.service_version
+			});
+		}
+		stream.end();
+	}
+	@errorWrapperDec
 	async cli() {
 		const { MODULE_DB, MODULE_DB_TABLE_NAME, MODULE_KEY_SYMBOL } = this;
 		await new Promise(cb => setTimeout(cb, 200));

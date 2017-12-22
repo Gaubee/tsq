@@ -25,7 +25,8 @@ import {
 	ApiUrlMatcher,
 	CENTER_PORT,
 	CONSTRUCTOR_PARAMS,
-	SERVICE_TOKEN
+	SERVICE_TOKEN,
+	SERVICE_METHOD
 } from './const';
 const {
 	HTTP2_HEADER_PATH,
@@ -33,7 +34,7 @@ const {
 	HTTP2_HEADER_CONTENT_TYPE
 } = http2.constants;
 
-export function bootstrap(ServiceConstructor: new (...args) => any) {
+export async function bootstrap(ServiceConstructor: new (...args) => any) {
 	const constructor_params: MicroServiceProxy<any>[] =
 		ServiceConstructor[CONSTRUCTOR_PARAMS];
 	const module_name: string = ServiceConstructor[MODULE_NAME_SYMBOL];
@@ -45,7 +46,6 @@ export function bootstrap(ServiceConstructor: new (...args) => any) {
 
 	// 将数据服务注入到constructor_params中，初始化远程依赖代理服务
 	const params = constructor_params.map(constructor_param => {
-		constructor_param.link(server);
 		return constructor_param.proxy_obj;
 	});
 
@@ -68,6 +68,7 @@ export function bootstrap(ServiceConstructor: new (...args) => any) {
 	}
 
 	server.on('request', generateRequestHandle(service, api_map));
+	server.on('request', generateChildServiceHandle(service));
 	server.listen(
 		{
 			port: server_port,
@@ -97,6 +98,7 @@ export function bootstrap(ServiceConstructor: new (...args) => any) {
 					const req = clientSession.request({
 						[HTTP2_HEADER_PATH]: '/',
 						token: SERVICE_TOKEN,
+						method: SERVICE_METHOD.REIGSTER,
 						register_module_name: module_name,
 						register_server_host: server_address_info.address,
 						register_server_family: server_address_info.family,
@@ -114,6 +116,12 @@ export function bootstrap(ServiceConstructor: new (...args) => any) {
 						}
 					});
 					req.end();
+
+					// 连接依赖节点
+					console.flag('连接依赖节点', constructor_params);
+					constructor_params.forEach(constructor_param => {
+						constructor_param.link(clientSession);
+					});
 				});
 
 				// clientSession.on(
@@ -162,6 +170,12 @@ function generateRequestHandle(service, api_map: Map<string, any>) {
 		req: http2.Http2ServerRequest,
 		res: http2.Http2ServerResponse
 	) => {
+		if (
+			!req.headers[HTTP2_HEADER_PATH] ||
+			req.headers[HTTP2_HEADER_PATH] === '/'
+		) {
+			return;
+		}
 		console.log('request', req.headers);
 		const url_info = (req[REQ_URL_CACHE_SYMBOL] = url.parse(req.headers[
 			HTTP2_HEADER_PATH
@@ -213,6 +227,78 @@ function generateRequestHandle(service, api_map: Map<string, any>) {
 			res.end('zzZZZ!no found');
 		} catch (err) {
 			console.error(err);
+		} finally {
+			console.timeEnd(t);
+		}
+	};
+	return onServerRequest;
+}
+
+function generateChildServiceHandle(service) {
+	const onServerRequest = async (
+		req: http2.Http2ServerRequest,
+		res: http2.Http2ServerResponse
+	) => {
+		if (req.headers.method !== SERVICE_METHOD.RPC_SERVICE) {
+			return;
+		}
+		const { rpc_type, prop_name } = req.headers as { [k: string]: string };
+		const t = console.time(req.method, rpc_type, prop_name);
+		try {
+			const get_body = () => {
+				return new Promise((resolve, reject) => {
+					var cache_json = '';
+					debugger;
+					req.stream.on('data', (...args) => {
+						console.flag('stream data', args);
+					});
+					req.stream.on('end', (...args) => {
+						console.flag('stream end', args);
+					});
+					req.on('push', chunk => {
+						console.flag('push', chunk + '');
+					});
+					req.on('data', (...args) => {
+						console.flag('req data', args);
+						cache_json += args[0];
+					});
+					req.on('end', args => {
+						try {
+							console.flag('cache_json', args, cache_json);
+							resolve(JSON.parse(cache_json));
+						} catch (err) {
+							reject(err);
+						}
+					});
+					req.on('error', reject);
+				});
+			};
+			if (rpc_type === 'call') {
+				const args: any = await get_body();
+				console.log('args', args);
+				res.stream.respond({
+					status: 'success'
+				});
+				res.end(JSON.stringify(await service[prop_name](...args)));
+			} else if (rpc_type === 'get') {
+				res.stream.respond({
+					status: 'success'
+				});
+				res.end(JSON.stringify(await service[prop_name]));
+			} else if (rpc_type === 'set') {
+				service[prop_name] = await get_body();
+			} else {
+				res.stream.respond({
+					status: 'error'
+				});
+				res.end(new TypeError(`BAD type:"${rpc_type}"`).stack);
+			}
+		} catch (err) {
+			console.error(err);
+			res.stream.respond({
+				status: 'error'
+			});
+			res.end(JSON.stringify(err.stack));
 		} finally {
 			console.timeEnd(t);
 		}
