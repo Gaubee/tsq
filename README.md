@@ -57,3 +57,8 @@ ts-node test/B.service.ts
 ```
 
 > PS: 以上三步可以以任意的顺序启动。互相依赖的服务在有一端断开后都会自动重连。
+
+### 第四部：打开浏览器进行访问测试
+
+* **测试异步调用** https://localhost:8443/qaq/hi?name=gaubee
+* **测试同步调用** https://localhost:8443/qaq/add/1/2.2
