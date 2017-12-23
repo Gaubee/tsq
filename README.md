@@ -33,3 +33,27 @@ export class B {
 }
 ```
 B模块依赖与A模块，在调用A模块的时候，可以以最原始的方式去调用A模块的实例的方法，异步方法，甚至是同步方法，而这A模块的服务运行在另外一个进程中，可同时供养于其它服务。
+
+## DEMO
+
+建议安装[ts-node](https://www.npmjs.com/package/ts-node)
+
+### 第一步： 启动中央服务
+
+```shell
+ts-node test/center.service.ts
+```
+
+### 第二步： 启动A服务
+
+```shell
+ts-node test/A.service.ts
+```
+
+### 第三步： 启动B服务
+
+```shell
+ts-node test/B.service.ts
+```
+
+> PS: 以上三步可以以任意的顺序启动。互相依赖的服务在有一端断开后都会自动重连。
