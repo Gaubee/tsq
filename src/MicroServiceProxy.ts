@@ -4,6 +4,10 @@ import {
 	IS_PROXY_OBJECT,
 	SERVICE_TOKEN,
 	SERVICE_METHOD,
+	errorWrapperDec,
+	errorWrapper,
+	AsyncFunction,
+	waitPromise,
 	console
 } from './const';
 import * as http2 from 'http2';
@@ -18,6 +22,7 @@ export const getProxy_symbol = Symbol('getProxy');
 // export const getProxy_symbol = Symbol('getProxy');
 import { RPCObjectManager } from './RPCObject';
 import { PromiseOut } from './lib/PromiseExtends';
+import { sessionRequest } from './lib/Http2Helper';
 
 const get_body = (req: http2.ClientHttp2Stream) => {
 	return new Promise((resolve, reject) => {
@@ -27,6 +32,7 @@ const get_body = (req: http2.ClientHttp2Stream) => {
 		});
 		req.on('end', () => {
 			try {
+				console.flag('json_cache', json_cache);
 				resolve(JSON.parse(json_cache));
 			} catch (err) {
 				reject(err);
@@ -37,106 +43,195 @@ const get_body = (req: http2.ClientHttp2Stream) => {
 
 export class MicroServiceProxy<T extends Function> {
 	proxy_obj = {} as T;
+	proxy_prop_caller: { [key: string]: Function } = {};
+	proxy_prop_getter: { [key: string]: Function } = {};
+	proxy_prop_setter: { [key: string]: Function } = {};
 	rpc_object_manager = new RPCObjectManager();
 	events = new EventEmitter();
 	constructor(public Constructor: T) {
-		this[MODULE_NAME_SYMBOL] = Constructor[MODULE_NAME_SYMBOL];
-		this[SERVICE_VERSION_SYMBOL] = Constructor[SERVICE_VERSION_SYMBOL];
-		Object.setPrototypeOf(this.proxy_obj, Constructor.prototype);
+		const module_name = this[MODULE_NAME_SYMBOL] = Constructor[MODULE_NAME_SYMBOL];
+		const service_version = this[SERVICE_VERSION_SYMBOL] = Constructor[SERVICE_VERSION_SYMBOL];
+		// Object.setPrototypeOf(this.proxy_obj, Constructor.prototype);
+		// 遍历原型链，获取对象的所有方法与属性，进行预先编译
+		const proto = this.getProto(Constructor.prototype)
+		const g = console.group(`预编译代理对象[${module_name} ${service_version}]的调用函数`)
+		for (let key in proto) {
+			if (key === 'constructor') {
+				continue;
+			}
+			const des = proto[key];
+			if (des.value instanceof Function) {
+				console.flag('fun', key)
+				this.proxy_prop_caller[key] = this._generateCaller(key);
+			} else if (des.value instanceof AsyncFunction) {
+				console.flag('afun', key)
+				this.proxy_prop_caller[key] = this._generateAsyncCaller(key);
+			} else {
+				console.flag('prop', key)
+				this.proxy_prop_getter[key] = this._generateGetter(key);
+				this.proxy_prop_setter[key] = this._generateSetter(key);
+			}
+		}
+		console.groupEnd(g, '预编译完成');
+
 		this.proxy_obj = new Proxy({} as T, {
 			getPrototypeOf(target) {
 				return Constructor.prototype;
 			},
 			get: (target, key: string) => {
-				const descriptor: PropertyDescriptor = Object.getOwnPropertyDescriptor(
-					Constructor.prototype,
-					key
-				);
-				console.flag('get', key, descriptor);
-				if (descriptor) {
-					if (descriptor.value instanceof Function) {
-						return (...args) => {
-							const proxyed_args = [];
-							for (let arg of args) {
-								// proxyed_args.push(this.getProxy(arg));
-								proxyed_args.push(arg);
-							}
-							const send_req = () => {
-								const req = this._child_session.request({
-									[HTTP2_HEADER_METHOD]: 'POST',
-									method: SERVICE_METHOD.RPC_SERVICE,
-									rpc_type: 'call',
-									prop_name: key
-								});
-								console.flag(
-									'JSON.stringify(proxyed_args)',
-									JSON.stringify(proxyed_args)
-								);
-								// req.push(JSON.stringify(proxyed_args));
-								req.end(JSON.stringify(proxyed_args));
-								return new Promise((resolve, reject) => {
-									req.on('stream', (...args) => {
-										console.log(
-											'fuck stream response',
-											args
-										);
-									});
-									req.on('response', headers => {
-										console.log('cb response', headers);
-										if (headers.status === 'success') {
-											get_body(req)
-												.then(resolve)
-												.catch(reject);
-										} else {
-											get_body(req)
-												.then(reject)
-												.catch(reject);
-										}
-									});
-								});
-							};
-							if (this._linked) {
-								return send_req();
-							} else {
-								return this.getLinkPromise().then(send_req);
-							}
-						};
-					} else {
-						return new Promise((resolve, reject) => {
-							const req = this._child_session.request({
-								method: SERVICE_METHOD.RPC_SERVICE,
-								rpc_type: 'get',
-								prop_name: key
-							});
-							req.end();
-							req.on('response', headers => {
-								if (headers.status === 'success') {
-									get_body(req)
-										.then(resolve)
-										.catch(reject);
-								} else {
-									get_body(req)
-										.then(reject)
-										.catch(reject);
-								}
-							});
-						});
-					}
-				} else {
-					return undefined;
+				if (key in this.proxy_prop_caller) {
+					return this.proxy_prop_caller[key]
 				}
+				if (!(key in this.proxy_prop_getter)) {
+					this.proxy_prop_getter[key] = this._generateGetter(key);
+				}
+				return this.proxy_prop_getter[key]()
 			},
 			set: (target, key: string, value: any) => {
-				console.flag('set', key);
-				const req = this._child_session.request({
-					method: SERVICE_METHOD.RPC_SERVICE,
-					rpc_type: 'set',
-					prop_name: key
-				});
-				req.end(JSON.stringify(value));
+				if (!(key in this.proxy_prop_setter)) {
+					this.proxy_prop_setter[key] = this._generateSetter(key);
+				}
+				this.proxy_prop_setter[key](value);
 				return true;
 			}
 		});
+	}
+	getProto(source, end = Object.prototype) {
+		const proto = Object.getOwnPropertyDescriptors(source);
+		while (true) {
+			const _proto_ = Object.getPrototypeOf(source);
+			if (!_proto_ || _proto_ === end) {
+				break
+			}
+			Object.setPrototypeOf(proto, Object.getOwnPropertyDescriptors(_proto_));
+			source = _proto_;
+		}
+		return proto;
+	}
+
+	private _generateCaller(key: string) {
+		return (...args) => {
+			const proxyed_args = [];
+			for (let arg of args) {
+				// proxyed_args.push(this.getProxy(arg));
+				proxyed_args.push(arg);
+			}
+			const send_req = async () => {
+				const req = sessionRequest(this._child_session,
+					{
+						method: SERVICE_METHOD.RPC_SERVICE,
+						rpc_type: 'call',
+						prop_name: key
+					},
+					{
+						body: proxyed_args,
+						method: 'POST'
+					}
+				)
+				const headers = await req.headersPromiseOut.promise;
+				console.flag('headers', headers)
+				if (headers.status === 'success') {
+					return req.jsonBodyPromise
+				} else {
+					throw req.jsonBodyPromise;
+				}
+			};
+			if (!this._linked) {
+				const wg = console.group('等待【依赖服务】重连', `call ${key}`);
+				waitPromise(this.getLinkPromise())
+				console.groupEnd(wg, '【依赖服务】重连成功');
+			}
+			return waitPromise(send_req());
+		}
+	}
+	private _generateAsyncCaller(key: string) {
+		return async (...args) => {
+			const proxyed_args = [];
+			for (let arg of args) {
+				// proxyed_args.push(this.getProxy(arg));
+				proxyed_args.push(arg);
+			}
+			const send_req = async () => {
+				const req = sessionRequest(this._child_session,
+					{
+						method: SERVICE_METHOD.RPC_SERVICE,
+						rpc_type: 'call',
+						prop_name: key
+					},
+					{
+						body: proxyed_args,
+						method: 'POST'
+					}
+				)
+				const headers = await req.headersPromiseOut.promise;
+				console.flag('headers', headers)
+				if (headers.status === 'success') {
+					return req.jsonBodyPromise
+				} else {
+					throw req.jsonBodyPromise;
+				}
+			};
+			if (!this._linked) {
+				const wg = console.group('等待【依赖服务】重连', `call ${key}`);
+				await this.getLinkPromise()
+				console.groupEnd(wg, '【依赖服务】重连成功');
+			}
+			return send_req();
+		}
+	}
+	private _generateGetter(key: string) {
+		return async () => {
+
+			const send_req = async () => {
+				const req = sessionRequest(this._child_session,
+					{
+						method: SERVICE_METHOD.RPC_SERVICE,
+						rpc_type: 'get',
+						prop_name: key
+					}
+				)
+				const headers = await req.headersPromiseOut.promise;
+				if (headers.status === 'success') {
+					return req.jsonBodyPromise
+				} else {
+					throw req.jsonBodyPromise;
+				}
+			};
+			if (!this._linked) {
+				const wg = console.group('等待【依赖服务】重连', `get ${key}`);
+				await this.getLinkPromise()
+				console.groupEnd(wg, '【依赖服务】重连成功');
+			}
+			return send_req();
+		};
+	}
+	private _generateSetter(key: string) {
+		return async (val: any) => {
+			const send_req = async () => {
+				const req = sessionRequest(this._child_session,
+					{
+						method: SERVICE_METHOD.RPC_SERVICE,
+						rpc_type: 'set',
+						prop_name: key
+					}, {
+						method: 'POST',
+						body: val//this.getProxy(val)
+					}
+				)
+				const headers = await req.headersPromiseOut.promise;
+				if (headers.status === 'success') {
+					return req.jsonBodyPromise
+				} else {
+					throw req.jsonBodyPromise;
+				}
+			};
+			if (!this._linked) {
+				const wg = console.group('等待【依赖服务】重连', `set ${key}`);
+				await this.getLinkPromise()
+				console.groupEnd(wg, '【依赖服务】重连成功');
+			}
+			return send_req();
+		};
 	}
 	// getClassProxy<T extends object>(Constructor: any) {
 	// 	// const ins: T = new MicroServiceProxy(Constructor) as any;
@@ -145,41 +240,56 @@ export class MicroServiceProxy<T extends Function> {
 	// }
 	private _main_session: http2.ClientHttp2Session;
 	private _child_session: http2.ClientHttp2Session;
-	private __linking: PromiseOut<void>;
-	private set _linking(v) {
-		this.__linking = v;
-		this.events.emit('set-link', v);
+	private _linking: PromiseOut<void>;
+	set linking(v) {
+		if (this._linking !== v && v) {
+			if (this._linking) {
+				this._linking.reject();
+			}
+			this._linking = v;
+			this.events.emit('set-link', v);
+		}
 	}
-	private get _linking() {
-		return this.__linking;
+	get linking() {
+		return this._linking;
 	}
 	private _linked = false;
+	@errorWrapperDec
 	getLinkPromise() {
-		const retry = () => {
-			const waiter = new PromiseOut<any>();
-			this.events.once('set-link', (linking: PromiseOut<void>) => {
-				linking.promise.then(waiter.resolve).catch(retry);
-			});
-			return waiter.promise;
+		const waiter = new PromiseOut<void>();
+		var listend = false;
+		var listen_fun = (linking: PromiseOut<void>) => {
+			linking.promise.then(waiter.resolve).catch(retry);
 		};
-		if (this._linking) {
-			return this._linking.promise.catch(retry);
+		const retry = () => {
+			if (!listend) {
+				listend = true;
+				this.events.on('set-link', listen_fun);
+			}
+		};
+		if (this.linking) {
+			this.linking.promise.then(waiter.resolve).catch(retry);
 		} else {
-			return retry();
+			retry();
 		}
+		return waiter.promise.then(() => {
+			if (listend) {
+				this.events.removeListener('set-link', listen_fun);
+			}
+		});
 	}
 	link(session: http2.ClientHttp2Session) {
 		this._main_session = session;
 		this._linked = false;
-		const linking = (this._linking = new PromiseOut());
-		const reLink = () => {
-			if (linking == this._linking) {
+		const linking = (this.linking = new PromiseOut());
+		const reLink = errorWrapper(() => {
+			if (linking == this.linking) {
 				// link函数没有被外部再次调用
 				return this.link(this._main_session);
 			} else {
 				console.info('由于外部调用，当前流程的自动重连中断');
 			}
-		};
+		});
 		// 询问主节点，依赖的地址
 		const req = session.request({
 			method: SERVICE_METHOD.QUERY_MODULE,
@@ -195,8 +305,8 @@ export class MicroServiceProxy<T extends Function> {
 					server_port,
 					service_version
 				} = headers as {
-					[k: string]: string;
-				};
+						[k: string]: string;
+					};
 				if (service_version !== this[SERVICE_VERSION_SYMBOL]) {
 					console.warn('版本号不对齐，请注意更新');
 					console.flag('需要版本', this[SERVICE_VERSION_SYMBOL]);
@@ -240,7 +350,7 @@ export class MicroServiceProxy<T extends Function> {
 			} else {
 				const flag_name = console.flagHead(
 					`${this[MODULE_NAME_SYMBOL]} ${this[
-						SERVICE_VERSION_SYMBOL
+					SERVICE_VERSION_SYMBOL
 					]}`
 				);
 
@@ -248,7 +358,9 @@ export class MicroServiceProxy<T extends Function> {
 				linking.reject();
 			}
 		});
-		req.on('error', async err => {
+
+		req.on('error', linking.reject);
+		return this.linking.promise.catch(async err => {
 			const RECONNECT_DELAY = 1000;
 			console.error(
 				'查询主节点失败',
@@ -258,9 +370,8 @@ export class MicroServiceProxy<T extends Function> {
 			await new Promise(cb => setTimeout(cb, RECONNECT_DELAY));
 			return reLink();
 		});
-		return this._linking.promise;
 	}
-	private _askDependent() {}
+	private _askDependent() { }
 	getObjectProxy<T extends object>(obj: T) {
 		obj[IS_PROXY_OBJECT] = 1;
 		return new Proxy(obj, {}) as T;
@@ -297,5 +408,5 @@ export class MicroServiceProxy<T extends Function> {
 		}
 	}
 
-	start() {}
+	start() { }
 }

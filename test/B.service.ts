@@ -1,9 +1,9 @@
 import { MicroService, App, console, exportAPI, ResponseContent } from '../src';
 import { A } from './A.service';
 
-@MicroService('1.0.0', 802)
+@MicroService('1.0.0')
 export class B {
-	constructor(public a: A) {}
+	constructor(public a: A) { }
 	@exportAPI('/hi/:name', ['params.name'])
 	@exportAPI('/hi', ['query.name'])
 	async callA(name: string) {
@@ -13,7 +13,7 @@ export class B {
 	}
 	@exportAPI('/add/:a/:b', ['params.a', 'params.b'])
 	async add(a: number, b: number) {
-		return new ResponseContent(`<h2 style='color:#8b008b'>${a + b}</h2>`, {
+		return new ResponseContent(`<h2 style='color:#8b008b'>${this.a.add(a, b)}</h2>`, {
 			type: ResponseContent.Type.html
 		});
 	}

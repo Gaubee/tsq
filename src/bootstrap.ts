@@ -28,6 +28,7 @@ import {
 	SERVICE_TOKEN,
 	SERVICE_METHOD
 } from './const';
+import { debug } from 'util';
 const {
 	HTTP2_HEADER_PATH,
 	HTTP2_HEADER_STATUS,
@@ -118,8 +119,10 @@ export async function bootstrap(ServiceConstructor: new (...args) => any) {
 					req.end();
 
 					// 连接依赖节点
-					console.flag('连接依赖节点', constructor_params);
 					constructor_params.forEach(constructor_param => {
+						console.flag('连接依赖节点',
+							constructor_params[MODULE_NAME_SYMBOL],
+							constructor_params[SERVICE_VERSION_SYMBOL]);
 						constructor_param.link(clientSession);
 					});
 				});
@@ -176,7 +179,6 @@ function generateRequestHandle(service, api_map: Map<string, any>) {
 		) {
 			return;
 		}
-		console.log('request', req.headers);
 		const url_info = (req[REQ_URL_CACHE_SYMBOL] = url.parse(req.headers[
 			HTTP2_HEADER_PATH
 		] as string));
@@ -262,9 +264,9 @@ function generateChildServiceHandle(service) {
 						console.flag('req data', args);
 						cache_json += args[0];
 					});
-					req.on('end', args => {
+					req.on('end', () => {
 						try {
-							console.flag('cache_json', args, cache_json);
+							console.flag('cache_json', cache_json);
 							resolve(JSON.parse(cache_json));
 						} catch (err) {
 							reject(err);

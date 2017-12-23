@@ -19,6 +19,7 @@ import {
 } from './const';
 import { PromiseOut } from './lib/PromiseExtends';
 import { bootstrap } from './bootstrap';
+import { EventEmitter } from 'events';
 
 const {
 	HTTP2_HEADER_PATH,
@@ -37,9 +38,37 @@ export class MicroServiceNode {
 	) {
 		// pool.set(module_name, this);
 	}
-	connectingPromiseOut = new PromiseOut<http2.ClientHttp2Session>();
-	get connectingPromise() {
-		return this.connectingPromiseOut.promise;
+	events = new EventEmitter();
+	private _connecting = new PromiseOut<http2.ClientHttp2Session>();
+	get connecting() {
+		return this._connecting;
+	}
+	set connecting(v) {
+		if (this._connecting !== v && v) {
+			if (this._connecting) {
+				this._connecting.reject();
+			}
+			this._connecting = v;
+			this.events.emit('set-connecting', v);
+		}
+	}
+	getConnectingPromise() {
+		const waiter = new PromiseOut<http2.ClientHttp2Session>();
+		const retry = () => {
+			this.events.once(
+				'set-connecting',
+				(connecting: PromiseOut<http2.ClientHttp2Session>) => {
+					connecting.promise.then(waiter.resolve).catch(retry);
+				}
+			);
+			return waiter.promise;
+		};
+		if (this.connecting) {
+			this.connecting.promise.then(waiter.resolve).catch(retry);
+		} else {
+			retry();
+		}
+		return waiter.promise;
 	}
 }
 export enum ServiceStatus {
@@ -153,7 +182,7 @@ export class App {
 							// 等待一个连接失败的实例对象
 							const po = new PromiseOut<MicroServiceNode>();
 							for (let connecting_module of connecting_module_list) {
-								connecting_module.connectingPromise
+								connecting_module.connecting.promise
 									.then(() => {
 										all_len -= 1;
 										if (all_len === 0) {
@@ -203,7 +232,7 @@ export class App {
 		const log_register_error = console.error.bind(console, 'REGISTER FAIL');
 		function connectMicroServiceNode(action = '注册') {
 			const flag_name = console.flagHead(module_name);
-			const promiseOut = service_module.connectingPromiseOut;
+			const connecting = service_module.connecting;
 
 			const href = net.isIPv6(service_module.server_host)
 				? `http://[${service_module.server_host}]:${service_module.server_port}`
@@ -216,8 +245,10 @@ export class App {
 				console.success(`${action}服务成功`, flag_name);
 				service_module.status = ServiceStatus.online;
 				service_module.moduleSession = moduleSession;
-				stream.end(SERVICE_TOKEN);
-				promiseOut.resolve(moduleSession);
+				connecting.resolve(moduleSession);
+				if (!stream.destroyed) {
+					stream.end(SERVICE_TOKEN);
+				}
 			});
 			async function tryReconnect(status: ServiceStatus) {
 				auto_reconnect_times -= 1;
@@ -227,7 +258,7 @@ export class App {
 					return;
 				}
 				service_module.status = status;
-				service_module.connectingPromiseOut = new PromiseOut();
+				service_module.connecting = new PromiseOut();
 				console.info(
 					flag_name,
 					`${(RECONNECT_DELAY / 1000).toFixed(1)}s后进行重连。`
@@ -238,17 +269,17 @@ export class App {
 			moduleSession.on('close', () => {
 				console.warn('服务离线', flag_name);
 				// 离线模式，不直接移除，考虑http2的链接断开的情况、考虑服务节点重启中的情况
-				promiseOut.reject('close');
+				connecting.reject('close');
 				tryReconnect(ServiceStatus.offline);
 				// .then(promiseOut.resolve.bind(promiseOut))
 				// .catch(promiseOut.reject.bind(promiseOut));
 			});
 			moduleSession.on('error', err => {
 				console.error('服务异常', err);
-				promiseOut.reject(err);
+				connecting.reject(err);
 				tryReconnect(ServiceStatus.disabled);
 			});
-			return promiseOut.promise;
+			return connecting.promise;
 		}
 		connectMicroServiceNode().catch(log_register_error);
 	}
@@ -279,7 +310,11 @@ export class App {
 		if (registed_module) {
 			try {
 				registed_module.status !== ServiceStatus.online;
-				await registed_module.connectingPromise;
+				const moduleSession = await registed_module.getConnectingPromise();
+				console.flag(
+					'moduleSession === registed_module.moduleSession',
+					moduleSession === registed_module.moduleSession
+				);
 
 				const proxy_req = registed_module.moduleSession.request({
 					...req.headers,
@@ -339,6 +374,10 @@ export class App {
 				server_host: matched_module.server_host,
 				server_port: matched_module.server_port,
 				service_version: matched_module.service_version
+			});
+		} else {
+			stream.respond({
+				success: 'false'
 			});
 		}
 		stream.end();
