@@ -49,25 +49,29 @@ export class MicroServiceProxy<T extends Function> {
 	rpc_object_manager = new RPCObjectManager();
 	events = new EventEmitter();
 	constructor(public Constructor: T) {
-		const module_name = this[MODULE_NAME_SYMBOL] = Constructor[MODULE_NAME_SYMBOL];
-		const service_version = this[SERVICE_VERSION_SYMBOL] = Constructor[SERVICE_VERSION_SYMBOL];
+		const module_name = (this[MODULE_NAME_SYMBOL] =
+			Constructor[MODULE_NAME_SYMBOL]);
+		const service_version = (this[SERVICE_VERSION_SYMBOL] =
+			Constructor[SERVICE_VERSION_SYMBOL]);
 		// Object.setPrototypeOf(this.proxy_obj, Constructor.prototype);
 		// 遍历原型链，获取对象的所有方法与属性，进行预先编译
-		const proto = this.getProto(Constructor.prototype)
-		const g = console.group(`预编译代理对象[${module_name} ${service_version}]的调用函数`)
+		const proto = this.getProto(Constructor.prototype);
+		const g = console.group(
+			`预编译代理对象[${module_name} ${service_version}]的调用函数`
+		);
 		for (let key in proto) {
 			if (key === 'constructor') {
 				continue;
 			}
 			const des = proto[key];
 			if (des.value instanceof Function) {
-				console.flag('fun', key)
+				console.flag('fun', key);
 				this.proxy_prop_caller[key] = this._generateCaller(key);
 			} else if (des.value instanceof AsyncFunction) {
-				console.flag('afun', key)
+				console.flag('afun', key);
 				this.proxy_prop_caller[key] = this._generateAsyncCaller(key);
 			} else {
-				console.flag('prop', key)
+				console.flag('prop', key);
 				this.proxy_prop_getter[key] = this._generateGetter(key);
 				this.proxy_prop_setter[key] = this._generateSetter(key);
 			}
@@ -80,12 +84,12 @@ export class MicroServiceProxy<T extends Function> {
 			},
 			get: (target, key: string) => {
 				if (key in this.proxy_prop_caller) {
-					return this.proxy_prop_caller[key]
+					return this.proxy_prop_caller[key];
 				}
 				if (!(key in this.proxy_prop_getter)) {
 					this.proxy_prop_getter[key] = this._generateGetter(key);
 				}
-				return this.proxy_prop_getter[key]()
+				return this.proxy_prop_getter[key]();
 			},
 			set: (target, key: string, value: any) => {
 				if (!(key in this.proxy_prop_setter)) {
@@ -101,9 +105,12 @@ export class MicroServiceProxy<T extends Function> {
 		while (true) {
 			const _proto_ = Object.getPrototypeOf(source);
 			if (!_proto_ || _proto_ === end) {
-				break
+				break;
 			}
-			Object.setPrototypeOf(proto, Object.getOwnPropertyDescriptors(_proto_));
+			Object.setPrototypeOf(
+				proto,
+				Object.getOwnPropertyDescriptors(_proto_)
+			);
 			source = _proto_;
 		}
 		return proto;
@@ -117,7 +124,8 @@ export class MicroServiceProxy<T extends Function> {
 				proxyed_args.push(arg);
 			}
 			const send_req = async () => {
-				const req = sessionRequest(this._child_session,
+				const req = sessionRequest(
+					this._child_session,
 					{
 						method: SERVICE_METHOD.RPC_SERVICE,
 						rpc_type: 'call',
@@ -127,22 +135,22 @@ export class MicroServiceProxy<T extends Function> {
 						body: proxyed_args,
 						method: 'POST'
 					}
-				)
+				);
 				const headers = await req.headersPromiseOut.promise;
-				console.flag('headers', headers)
+				console.flag('headers', headers);
 				if (headers.status === 'success') {
-					return req.jsonBodyPromise
+					return req.jsonBodyPromise;
 				} else {
 					throw req.jsonBodyPromise;
 				}
 			};
 			if (!this._linked) {
 				const wg = console.group('等待【依赖服务】重连', `call ${key}`);
-				waitPromise(this.getLinkPromise())
+				waitPromise(this.getLinkPromise());
 				console.groupEnd(wg, '【依赖服务】重连成功');
 			}
 			return waitPromise(send_req());
-		}
+		};
 	}
 	private _generateAsyncCaller(key: string) {
 		return async (...args) => {
@@ -152,7 +160,8 @@ export class MicroServiceProxy<T extends Function> {
 				proxyed_args.push(arg);
 			}
 			const send_req = async () => {
-				const req = sessionRequest(this._child_session,
+				const req = sessionRequest(
+					this._child_session,
 					{
 						method: SERVICE_METHOD.RPC_SERVICE,
 						rpc_type: 'call',
@@ -162,44 +171,41 @@ export class MicroServiceProxy<T extends Function> {
 						body: proxyed_args,
 						method: 'POST'
 					}
-				)
+				);
 				const headers = await req.headersPromiseOut.promise;
-				console.flag('headers', headers)
+				console.flag('headers', headers);
 				if (headers.status === 'success') {
-					return req.jsonBodyPromise
+					return req.jsonBodyPromise;
 				} else {
 					throw req.jsonBodyPromise;
 				}
 			};
 			if (!this._linked) {
 				const wg = console.group('等待【依赖服务】重连', `call ${key}`);
-				await this.getLinkPromise()
+				await this.getLinkPromise();
 				console.groupEnd(wg, '【依赖服务】重连成功');
 			}
 			return send_req();
-		}
+		};
 	}
 	private _generateGetter(key: string) {
 		return async () => {
-
 			const send_req = async () => {
-				const req = sessionRequest(this._child_session,
-					{
-						method: SERVICE_METHOD.RPC_SERVICE,
-						rpc_type: 'get',
-						prop_name: key
-					}
-				)
+				const req = sessionRequest(this._child_session, {
+					method: SERVICE_METHOD.RPC_SERVICE,
+					rpc_type: 'get',
+					prop_name: key
+				});
 				const headers = await req.headersPromiseOut.promise;
 				if (headers.status === 'success') {
-					return req.jsonBodyPromise
+					return req.jsonBodyPromise;
 				} else {
 					throw req.jsonBodyPromise;
 				}
 			};
 			if (!this._linked) {
 				const wg = console.group('等待【依赖服务】重连', `get ${key}`);
-				await this.getLinkPromise()
+				await this.getLinkPromise();
 				console.groupEnd(wg, '【依赖服务】重连成功');
 			}
 			return send_req();
@@ -208,26 +214,28 @@ export class MicroServiceProxy<T extends Function> {
 	private _generateSetter(key: string) {
 		return async (val: any) => {
 			const send_req = async () => {
-				const req = sessionRequest(this._child_session,
+				const req = sessionRequest(
+					this._child_session,
 					{
 						method: SERVICE_METHOD.RPC_SERVICE,
 						rpc_type: 'set',
 						prop_name: key
-					}, {
+					},
+					{
 						method: 'POST',
-						body: val//this.getProxy(val)
+						body: val //this.getProxy(val)
 					}
-				)
+				);
 				const headers = await req.headersPromiseOut.promise;
 				if (headers.status === 'success') {
-					return req.jsonBodyPromise
+					return req.jsonBodyPromise;
 				} else {
 					throw req.jsonBodyPromise;
 				}
 			};
 			if (!this._linked) {
 				const wg = console.group('等待【依赖服务】重连', `set ${key}`);
-				await this.getLinkPromise()
+				await this.getLinkPromise();
 				console.groupEnd(wg, '【依赖服务】重连成功');
 			}
 			return send_req();
@@ -305,8 +313,8 @@ export class MicroServiceProxy<T extends Function> {
 					server_port,
 					service_version
 				} = headers as {
-						[k: string]: string;
-					};
+					[k: string]: string;
+				};
 				if (service_version !== this[SERVICE_VERSION_SYMBOL]) {
 					console.warn('版本号不对齐，请注意更新');
 					console.flag('需要版本', this[SERVICE_VERSION_SYMBOL]);
@@ -350,7 +358,7 @@ export class MicroServiceProxy<T extends Function> {
 			} else {
 				const flag_name = console.flagHead(
 					`${this[MODULE_NAME_SYMBOL]} ${this[
-					SERVICE_VERSION_SYMBOL
+						SERVICE_VERSION_SYMBOL
 					]}`
 				);
 
@@ -371,7 +379,7 @@ export class MicroServiceProxy<T extends Function> {
 			return reLink();
 		});
 	}
-	private _askDependent() { }
+	private _askDependent() {}
 	getObjectProxy<T extends object>(obj: T) {
 		obj[IS_PROXY_OBJECT] = 1;
 		return new Proxy(obj, {}) as T;
@@ -408,5 +416,5 @@ export class MicroServiceProxy<T extends Function> {
 		}
 	}
 
-	start() { }
+	start() {}
 }

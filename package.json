@@ -1,10 +1,11 @@
 {
   "name": "tsq",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "",
   "main": "dist/index.js",
   "scripts": {
     "debug": "node --inspect-brk bootstrap-ts-node",
+    "build": "tsc && copyfiles -f src/pem/* dist/src/pem/",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -14,7 +15,7 @@
     "console-pro": "^1.2.2",
     "deasync": "^0.1.12",
     "fibers": "^2.0.0",
-    "filedase": "^1.0.8",
+    "filedase": "^1.0.9",
     "mime-types": "^2.1.17",
     "path-to-regexp": "^2.1.0",
     "reflect-metadata": "^0.1.10",
@@ -24,6 +25,7 @@
     "@types/mime-types": "^2.1.0",
     "@types/node": "^8.0.54",
     "@types/path-to-regexp": "^1.7.0",
+    "copyfiles": "^1.2.0",
     "ts-node": "^4.1.0"
   }
 }

@@ -17,10 +17,11 @@ import {
 const { HTTP2_HEADER_PATH, HTTP2_HEADER_STATUS } = http2.constants;
 
 export function exportAPI(
+	method: string,
 	match_url: string | RegExp | ApiUrlMatcher,
 	args_handers: any[] = []
 ) {
-	return function(service: any, fun_name: string) {
+	return function (service: any, fun_name: string) {
 		var matcher: ApiUrlMatcher;
 		if (typeof match_url === 'string') {
 			const re = pathToRegexp(match_url);
@@ -188,4 +189,39 @@ export function exportAPI(
 		api_info_list.push({ matcher, arg_hander_list });
 		return service;
 	};
+}
+export function GET(
+	match_url: string | RegExp | ApiUrlMatcher,
+	args_handers: any[] = []) {
+	return exportAPI("GET", match_url, args_handers);
+}
+
+export function POST(
+	match_url: string | RegExp | ApiUrlMatcher,
+	args_handers: any[] = []) {
+	return exportAPI("POST", match_url, args_handers);
+}
+
+export function PUT(
+	match_url: string | RegExp | ApiUrlMatcher,
+	args_handers: any[] = []) {
+	return exportAPI("PUT", match_url, args_handers);
+}
+
+export function DELETE(
+	match_url: string | RegExp | ApiUrlMatcher,
+	args_handers: any[] = []) {
+	return exportAPI("DELETE", match_url, args_handers);
+}
+
+export function HEAD(
+	match_url: string | RegExp | ApiUrlMatcher,
+	args_handers: any[] = []) {
+	return exportAPI("HEAD", match_url, args_handers);
+}
+
+export function PATCH(
+	match_url: string | RegExp | ApiUrlMatcher,
+	args_handers: any[] = []) {
+	return exportAPI("HEAD", match_url, args_handers);
 }

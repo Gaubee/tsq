@@ -17,6 +17,7 @@
     "outDir": "dist"
   },
   "include": [
+    "pem/*.pem",
     "src/**/*.ts",
     "code/**/*.ts",
     "test/**/*.ts"

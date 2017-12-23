@@ -1,21 +1,18 @@
-import { MicroService, App, console, exportAPI, ResponseContent } from '../src';
+import { MicroService, Path, App, console, GET, ResponseContent } from '../src';
 import { A } from './A.service';
 
+@Path('qaq')
 @MicroService('1.0.0')
 export class B {
 	constructor(public a: A) { }
-	@exportAPI('/hi/:name', ['params.name'])
-	@exportAPI('/hi', ['query.name'])
+	@GET('/hi/:name', ['params.name'])
+	@GET('/hi', ['query.name'])
 	async callA(name: string) {
-		return new ResponseContent(`<h1>${await this.a.sayHi(name)}</h1>`, {
-			type: ResponseContent.Type.html
-		});
+		return ResponseContent.html(`<h1>${await this.a.sayHi(name)}</h1>`);
 	}
-	@exportAPI('/add/:a/:b', ['params.a', 'params.b'])
-	async add(a: number, b: number) {
-		return new ResponseContent(`<h2 style='color:#8b008b'>${this.a.add(a, b)}</h2>`, {
-			type: ResponseContent.Type.html
-		});
+	@GET('/add/:a/:b', ['params.a', 'params.b'])
+	add(a: number, b: number) {
+		return ResponseContent.html(`<h2 style='color:#8b008b'>${this.a.add(a, b)}</h2>`);
 	}
 }
 

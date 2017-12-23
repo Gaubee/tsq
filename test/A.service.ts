@@ -1,9 +1,9 @@
-import { MicroService, App, console, exportAPI } from '../src';
+import { MicroService, App, console, GET } from '../src';
 
 @MicroService('1.0.0')
 export class A {
-	@exportAPI('/hi/:name', ['params.name'])
-	@exportAPI('/hi', ['query.name'])
+	@GET('/hi/:name', ['params.name'])
+	@GET('/hi', ['query.name'])
 	async sayHi(name: string) {
 		console.log('Hi', name);
 		return '✨' + name + '✨';

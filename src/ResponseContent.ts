@@ -15,4 +15,19 @@ export class ResponseContent {
 		'charset' in opts && (this.charset = opts.charset);
 		'statusCode' in opts && (this.statusCode = opts.statusCode);
 	}
+	static html(body: any) {
+		return new ResponseContent(body, {
+			type: ResponseContent.Type.html
+		});
+	}
+	static text(body: any) {
+		return new ResponseContent(body, {
+			type: ResponseContent.Type.text
+		});
+	}
+	static json(body: any) {
+		return new ResponseContent(body, {
+			type: ResponseContent.Type.json
+		});
+	}
 }

@@ -1,4 +1,5 @@
 import * as net from 'net';
+import * as querystring from 'querystring';
 import { readFileSync } from 'fs';
 import * as http2 from 'http2';
 import FileBase, { filebaseInit } from 'filedase';
@@ -6,6 +7,7 @@ export { FileBase };
 import {
 	console,
 	API_MAP_SYMBOL,
+	API_PATH_SYMBOL,
 	MODULE_NAME_SYMBOL,
 	SERVICE_VERSION_SYMBOL,
 	SERVER_PORT_SYMBOL,
@@ -31,6 +33,7 @@ export class MicroServiceNode {
 	constructor(
 		public module_name: string,
 		public service_version: string,
+		public api_path: string,
 		public server_host: string,
 		public server_port: number,
 		public status: ServiceStatus,
@@ -116,7 +119,7 @@ export class App {
 			);*/
 		});
 
-		server.listen(CENTER_PORT);
+		server.listen(CENTER_PORT, 'localhost');
 		console.success(`服务启动在${CENTER_PORT}端口上`);
 		// 控制台指令服务
 		this.cli();
@@ -125,16 +128,18 @@ export class App {
 	async registerMicroServiceNode(
 		stream: http2.ServerHttp2Stream,
 		headers: http2.IncomingHttpHeaders
-	) {
+		) {
 		const { MODULE_DB, MODULE_DB_TABLE_NAME, MODULE_KEY_SYMBOL } = this;
 
 		const {
 			register_module_name,
+			register_api_path,
 			register_server_host,
 			register_server_port,
 			register_service_version
 		} = headers;
 		const module_name = register_module_name as string;
+		const api_path = register_api_path as string;
 		const server_host = register_server_host as string;
 		const server_port = parseInt(register_server_port as string);
 		const service_version = register_service_version as string;
@@ -218,6 +223,7 @@ export class App {
 		const service_module = new MicroServiceNode(
 			module_name,
 			service_version,
+			api_path,
 			server_host,
 			server_port,
 			ServiceStatus.offline
@@ -287,7 +293,7 @@ export class App {
 	async handleRequest(
 		req: http2.Http2ServerRequest,
 		res: http2.Http2ServerResponse
-	) {
+		) {
 		const url_path = req.headers[HTTP2_HEADER_PATH] as string;
 		if (!url_path) {
 			return;
@@ -298,23 +304,27 @@ export class App {
 		const path_info = url_path.split('/').filter(p => p);
 		const registed_module_list = MODULE_DB.find_list<
 			MicroServiceNode
-		>(MODULE_DB_TABLE_NAME, {
-			module_name: path_info[0],
-			status: ServiceStatus.online
-		});
+			>(MODULE_DB_TABLE_NAME, {
+				api_path: path_info[0]
+				// status: ServiceStatus.online
+			});
+		const online_module_list = registed_module_list.filter(
+			m => m.status === ServiceStatus.online
+		);
 		// 随机策略
 		const registed_module =
+			online_module_list[
+			(online_module_list.length * Math.random()) | 0
+			] ||
 			registed_module_list[
-				(registed_module_list.length * Math.random()) | 0
+			(registed_module_list.length * Math.random()) | 0
 			];
+			console.log(registed_module)
 		if (registed_module) {
 			try {
-				registed_module.status !== ServiceStatus.online;
-				const moduleSession = await registed_module.getConnectingPromise();
-				console.flag(
-					'moduleSession === registed_module.moduleSession',
-					moduleSession === registed_module.moduleSession
-				);
+				if (registed_module.status !== ServiceStatus.online) {
+					await registed_module.getConnectingPromise();
+				}
 
 				const proxy_req = registed_module.moduleSession.request({
 					...req.headers,
@@ -333,7 +343,7 @@ export class App {
 				res.statusCode = 503;
 				res.end(
 					`MicroService [${registed_module.module_name}] ${ServiceStatus[
-						registed_module.status
+					registed_module.status
 					]}`
 				);
 			}
@@ -349,7 +359,7 @@ export class App {
 	async queryModule(
 		stream: http2.ServerHttp2Stream,
 		headers: http2.IncomingHttpHeaders
-	) {
+		) {
 		const { MODULE_DB, MODULE_DB_TABLE_NAME, MODULE_KEY_SYMBOL } = this;
 
 		const { module_name, service_version } = headers as {
@@ -398,6 +408,26 @@ export class App {
 				const g = console.group('模块列表');
 				for (let m of MODULE_DB.find_all<MicroServiceNode>(
 					MODULE_DB_TABLE_NAME
+				)) {
+					console.flag(
+						m.module_name,
+						'版本：',
+						m.service_version,
+						'端口:',
+						m.server_port,
+						ServiceStatus[m.status]
+					);
+				}
+				console.groupEnd(g);
+			} else if (command.startsWith('query ')) {
+				const queryInfo = querystring.parse(
+					command.replace('query ', '').trim()
+				);
+				Object.setPrototypeOf(queryInfo, Object.prototype);
+				const g = console.group('查询模块', queryInfo);
+				for (let m of MODULE_DB.find_list<MicroServiceNode>(
+					MODULE_DB_TABLE_NAME,
+					queryInfo
 				)) {
 					console.flag(
 						m.module_name,

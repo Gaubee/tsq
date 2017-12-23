@@ -1,23 +1,16 @@
 import { readFileSync } from 'fs';
 import * as url from 'url';
 import * as http2 from 'http2';
-import * as os from 'os';
-
-// const networkInterfaces = os.networkInterfaces();
-// for (let key in networkInterfaces) {
-// 	const networkInterface = networkInterfaces[key];
-
-// 	if (networkInterface.find(n => !n.internal)) {
-// 	}
-// }
 
 import { MicroServiceProxy } from './MicroServiceProxy';
 import { ResponseContent } from './ResponseContent';
 
 import {
 	console,
+	DEFAULT_NET_ADDRESS,
 	API_MAP,
 	API_MAP_SYMBOL,
+	API_PATH_SYMBOL,
 	MODULE_NAME_SYMBOL,
 	SERVICE_VERSION_SYMBOL,
 	SERVER_PORT_SYMBOL,
@@ -41,6 +34,7 @@ export async function bootstrap(ServiceConstructor: new (...args) => any) {
 	const module_name: string = ServiceConstructor[MODULE_NAME_SYMBOL];
 	const server_port: number = ServiceConstructor[SERVER_PORT_SYMBOL];
 	const service_version: string = ServiceConstructor[SERVICE_VERSION_SYMBOL];
+	const api_path: string = ServiceConstructor[API_PATH_SYMBOL] || '';
 
 	// 建立自己的服务节点，用于为其它中心节点提供直连服务
 	const server = http2.createServer();
@@ -73,7 +67,7 @@ export async function bootstrap(ServiceConstructor: new (...args) => any) {
 	server.listen(
 		{
 			port: server_port,
-			host: 'fe80::21b3:c398:f634:9270'
+			host: DEFAULT_NET_ADDRESS
 		},
 		() => {
 			const server_address_info = server.address();
@@ -101,6 +95,7 @@ export async function bootstrap(ServiceConstructor: new (...args) => any) {
 						token: SERVICE_TOKEN,
 						method: SERVICE_METHOD.REIGSTER,
 						register_module_name: module_name,
+						register_api_path: api_path,
 						register_server_host: server_address_info.address,
 						register_server_family: server_address_info.family,
 						register_server_port: server_address_info.port,
@@ -120,9 +115,11 @@ export async function bootstrap(ServiceConstructor: new (...args) => any) {
 
 					// 连接依赖节点
 					constructor_params.forEach(constructor_param => {
-						console.flag('连接依赖节点',
-							constructor_params[MODULE_NAME_SYMBOL],
-							constructor_params[SERVICE_VERSION_SYMBOL]);
+						console.flag(
+							'连接依赖节点',
+							constructor_param[MODULE_NAME_SYMBOL],
+							constructor_param[SERVICE_VERSION_SYMBOL]
+						);
 						constructor_param.link(clientSession);
 					});
 				});
@@ -149,8 +146,8 @@ export async function bootstrap(ServiceConstructor: new (...args) => any) {
 					const log_line = () => {
 						console.line(
 							is_connected ? '连接断开' : '连接失败',
-							second ? `${second}s后进行重连。` : '重连中……',
-							retry_times ? `已重连${retry_times}次` : ''
+							retry_times ? `已重连${retry_times}次` : '',
+							second ? `${second}s后进行重连。` : '重连中……'
 						);
 						second -= 0.1;
 						second = parseFloat(second.toFixed(1));

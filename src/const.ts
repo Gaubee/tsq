@@ -3,6 +3,7 @@ import * as deasync from 'deasync'
 import { Console } from 'console-pro';
 export const console = new Console();
 export const API_MAP_SYMBOL = Symbol.for('API_MAP');
+export const API_PATH_SYMBOL = Symbol.for('api_path');
 export const MODULE_NAME_SYMBOL = Symbol.for('module_name');
 export const SERVICE_VERSION_SYMBOL = Symbol.for('service_version');
 export const SERVER_PORT_SYMBOL = Symbol.for('server_port');
@@ -65,3 +66,14 @@ export function waitPromise<T = any>(p: Promise<T>) {
 		return res;
 	}
 }
+
+
+import * as os from 'os';
+const networkInterfaces = os.networkInterfaces();
+let __useable_net_address: os.NetworkInterfaceInfo;
+for (let key in networkInterfaces) {
+	const networkInterface = networkInterfaces[key];
+	__useable_net_address = networkInterface.find(n => !n.internal)
+
+}
+export const DEFAULT_NET_ADDRESS = __useable_net_address ? __useable_net_address.address : '0.0.0.0'
